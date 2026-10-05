@@ -1,3 +1,4 @@
+[![Stand with Ukraine](standwithukrainebannerimg.png)](https://ukraine.ua)
 # NOTICE
 We rebuild Kobi as a better, faster, simpler text editor with a new design. To align with our goal of integrating Kobi into Canerix Linux, our upcoming linux distro.
 
