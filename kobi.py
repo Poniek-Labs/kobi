@@ -1,180 +1,259 @@
-#!/usr/bin/env python3
-
+import curses
+import os
 import sys
-from prompt_toolkit.application import Application
-from prompt_toolkit.layout import Layout, HSplit, Window
-from prompt_toolkit.layout.controls import FormattedTextControl
-from prompt_toolkit.widgets import TextArea, Frame
-from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.styles import Style
-from prompt_toolkit.lexers import PygmentsLexer
-from prompt_toolkit.layout.processors import HighlightSearchProcessor
-from prompt_toolkit.clipboard import ClipboardData
-from pygments.lexers import guess_lexer_for_filename
-from pygments.util import ClassNotFound
+import termios
+import tty
 
-# ---------------- FILE ----------------
-filename = sys.argv[1] if len(sys.argv) > 1 else "newfile.txt"
 
-def load_file(name):
+class KobiEditor:
+
+  def __init__(self, stdscr, filename="untitled.txt"):
+    self.stdscr = stdscr
+    self.filename = filename
+    self.lines = [""]
+    self.cy = 0
+    self.cx = 0
+    self.row_offset = 0
+    self.col_offset = 0
+    self.status = "READY"
+
+    self.load_file()
+    self.init_curses()
+
+  def init_curses(self):
+    curses.curs_set(1)
+    self.stdscr.keypad(True)
+    curses.use_default_colors()
+
+    # Themes
+    curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_CYAN)  # Header
+    curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_BLUE)  # Status footer
+    curses.init_pair(3, curses.COLOR_CYAN, -1)  # Line numbers & Borders
+
+  def load_file(self):
+    if os.path.exists(self.filename):
+      try:
+        with open(self.filename, "r", encoding="utf-8") as f:
+          content = f.read().splitlines()
+          self.lines = content if content else [""]
+      except Exception as e:
+        self.status = f"Error loading file: {e}"
+
+  def save_file(self):
     try:
-        with open(name, "r", encoding="utf-8") as f:
-            return f.read()
-    except FileNotFoundError:
-        return ""
+      with open(self.filename, "w", encoding="utf-8") as f:
+        for line in self.lines:
+          f.write(line + "\n")
+      self.status = f"Saved: {self.filename}"
+    except Exception as e:
+      self.status = f"Save error: {e}"
 
-content = load_file(filename)
+  def prompt(self, message):
+    h, w = self.stdscr.getmaxyx()
+    if h < 4 or w < 10:
+      return ""
 
-# ---------------- LEXER ----------------
-def make_lexer(name, text):
-    try:
-        pyg = guess_lexer_for_filename(name, text)
-        return PygmentsLexer(type(pyg))
-    except ClassNotFound:
-        return None
+    self.stdscr.attron(curses.color_pair(2))
+    self.stdscr.addstr(h - 1, 0, " " * (w - 1))
+    self.stdscr.addstr(h - 1, 1, message[: max(1, w - 2)])
+    self.stdscr.attroff(curses.color_pair(2))
 
-lexer = make_lexer(filename, content)
+    curses.echo()
+    curses.curs_set(1)
+    input_start = len(message) + 1
+    max_len = max(1, w - input_start - 1)
 
-# ---------------- EDITOR ----------------
-editor = TextArea(
-    text=content,
-    scrollbar=True,
-    line_numbers=True,
-    lexer=lexer,
-    wrap_lines=False,
-    multiline=True,
-    focus_on_click=True,
-    input_processors=[HighlightSearchProcessor()]
-)
+    query = ""
+    if input_start < w - 1:
+      query = (
+          self.stdscr.getstr(h - 1, input_start, max_len)
+          .decode("utf-8", errors="ignore")
+          .strip()
+      )
 
-# ---------------- STATUS + HELP ----------------
-message = ""
+    curses.noecho()
+    return query
 
-def get_statusbar_text():
-    row = editor.document.cursor_position_row + 1
-    col = editor.document.cursor_position_col + 1
-    return f" {filename} | Ln {row}, Col {col} {message} "
+  def search(self):
+    query = self.prompt("Search: ")
+    if not query:
+      self.status = "Search canceled"
+      return
 
-def get_helpbar_text():
-    return " ^S Save  ^Q Quit  ^F Find  ^G GoTo  ^C Copy  ^X Cut  ^V Paste  ^Z Undo  ^Y Redo "
+    # Forward search
+    for idx in range(self.cy, len(self.lines)):
+      line = self.lines[idx]
+      start_col = (self.cx + 1) if idx == self.cy else 0
+      pos = line.find(query, start_col)
+      if pos != -1:
+        self.cy = idx
+        self.cx = pos
+        self.status = f"Found '{query}' at line {idx + 1}"
+        return
 
-status_bar = Window(height=1, content=FormattedTextControl(get_statusbar_text), style="class:status")
-help_bar = Window(height=1, content=FormattedTextControl(get_helpbar_text), style="class:help")
+    # Wrap around search
+    for idx in range(0, self.cy + 1):
+      line = self.lines[idx]
+      pos = line.find(query)
+      if pos != -1:
+        self.cy = idx
+        self.cx = pos
+        self.status = f"Found '{query}' at line {idx + 1}"
+        return
 
-# ---------------- STYLE ----------------
-style = Style.from_dict({
-    "status": "reverse",
-    "help": "bg:#444444 #ffffff",
-    "frame.border": "#888888",
-})
+    self.status = f"Not found: '{query}'"
 
-# ---------------- SAVE ----------------
-def save_file(name):
-    global message
-    with open(name, "w", encoding="utf-8") as f:
-        f.write(editor.text)
-    message = " [Saved]"
+  def scroll_viewport(self, text_height, text_width):
+    # Keep row/col view offsets strictly constrained to printable viewport
+    if self.cy < self.row_offset:
+      self.row_offset = self.cy
+    if self.cy >= self.row_offset + text_height:
+      self.row_offset = self.cy - text_height + 1
 
-# ---------------- KEY BINDINGS ----------------
-kb = KeyBindings()
+    if self.cx < self.col_offset:
+      self.col_offset = self.cx
+    if self.cx >= self.col_offset + text_width:
+      self.col_offset = self.cx - text_width + 1
 
-# Ctrl+S Save
-@kb.add("c-s")
-def _(event):
-    save_file(filename)
+  def render(self):
+    self.stdscr.erase()
+    h, w = self.stdscr.getmaxyx()
 
-# Ctrl+Q Quit
-@kb.add("c-q")
-def _(event):
-    event.app.exit()
+    # Minimum window size guard
+    if h < 4 or w < 12:
+      self.stdscr.addstr(0, 0, "Terminal too small")
+      self.stdscr.refresh()
+      return
 
-# Ctrl+F Find
-@kb.add("c-f")
-def _(event):
-    term = input("Find: ")
-    if term:
-        editor.buffer.search_state.text = term
-        editor.buffer.apply_search(highlight=True)
+    gutter_width = 7  # Line number gutter ("1234 │ ")
+    text_width = max(1, w - gutter_width)
+    text_height = max(1, h - 2)
 
-# Ctrl+G Go to line
-@kb.add("c-g")
-def _(event):
-    line_str = input("Go to line: ")
-    global message
-    if line_str.isdigit():
-        line = int(line_str) - 1
-        editor.buffer.cursor_position = editor.document.translate_row_col_to_index(line, 0)
-        message = f" [Line {line+1}]"
+    self.scroll_viewport(text_height, text_width)
 
-# ---------------- Clipboard ----------------
-# Ctrl+C Copy
-@kb.add("c-c")
-def _(event):
-    global message
-    buf = editor.buffer
-    if buf.selection_state:
-        text = buf.document.selection_range_text
-        if text:
-            event.app.clipboard.set_data(ClipboardData(text))
-            message = " [Copied]"
-    else:
-        message = " [No Selection]"
+    # 1. Header Bar
+    header = f" KOBI EDITOR — {self.filename}"
+    self.stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
+    self.stdscr.addstr(0, 0, header.ljust(w - 1)[: w - 1])
+    self.stdscr.attroff(curses.color_pair(1) | curses.A_BOLD)
 
-# Ctrl+X Cut
-@kb.add("c-x")
-def _(event):
-    global message
-    buf = editor.buffer
-    if buf.selection_state:
-        text = buf.document.selection_range_text
-        if text:
-            event.app.clipboard.set_data(ClipboardData(text))
-            buf.delete_selection()
-            message = " [Cut]"
-    else:
-        message = " [No Selection]"
+    # 2. Bounded Text Content & Gutter Line
+    for idx in range(text_height):
+      line_idx = self.row_offset + idx
+      row_y = idx + 1
 
-# Ctrl+V Paste
-@kb.add("c-v")
-def _(event):
-    global message
-    data = event.app.clipboard.get_data()
-    if data and data.text:
-        editor.buffer.insert_text(data.text)
-        message = " [Pasted]"
+      if line_idx < len(self.lines):
+        # Line number
+        num_str = f"{line_idx + 1:>4} │ "
+        self.stdscr.attron(curses.color_pair(3))
+        self.stdscr.addstr(row_y, 0, num_str[:gutter_width])
+        self.stdscr.attroff(curses.color_pair(3))
 
-# Ctrl+Z Undo
-@kb.add("c-z")
-def _(event):
-    editor.buffer.undo()
-    global message
-    message = " [Undo]"
+        # Truncate strictly to viewport width so text never writes outside the editor box
+        line_content = self.lines[line_idx][
+            self.col_offset : self.col_offset + text_width
+        ]
+        self.stdscr.addstr(row_y, gutter_width, line_content[:text_width])
+      else:
+        self.stdscr.attron(curses.color_pair(3))
+        self.stdscr.addstr(row_y, 0, "   ~ │ ")
+        self.stdscr.attroff(curses.color_pair(3))
 
-# Ctrl+Y Redo
-@kb.add("c-y")
-def _(event):
-    editor.buffer.redo()
-    global message
-    message = " [Redo]"
+    # 3. Status Footer Bar
+    pos_info = f"Ln {self.cy + 1}, Col {self.cx + 1}"
+    shortcuts = "^S: Save  |  ^F: Find  |  ^Q: Exit"
+    status_line = f" {self.status:<18} {shortcuts} | {pos_info} "
 
-# ---------------- LAYOUT ----------------
-root = HSplit([
-    Frame(editor, title=" Kobi "),
-    status_bar,
-    help_bar
-])
+    self.stdscr.attron(curses.color_pair(2))
+    self.stdscr.addstr(h - 1, 0, status_line.ljust(w - 1)[: w - 1])
+    self.stdscr.attroff(curses.color_pair(2))
 
-app = Application(
-    layout=Layout(root),
-    key_bindings=kb,
-    style=style,
-    full_screen=True,
-    mouse_support=True
-)
+    # Strict cursor positioning within GUI bounds
+    screen_y = max(1, min(h - 2, self.cy - self.row_offset + 1))
+    screen_x = max(
+        gutter_width, min(w - 1, self.cx - self.col_offset + gutter_width)
+    )
+    self.stdscr.move(screen_y, screen_x)
+    self.stdscr.refresh()
 
-# ---------------- RUN ----------------
+  def run(self):
+    while True:
+      # Clamp cursor to current line length bounds
+      self.cx = max(0, min(self.cx, len(self.lines[self.cy])))
+      self.render()
+
+      try:
+        ch = self.stdscr.getch()
+      except KeyboardInterrupt:
+        continue
+
+      # --- SHORTCUTS ---
+      if ch == 17:  # Ctrl + Q: Quit
+        break
+      elif ch == 19:  # Ctrl + S: Save
+        self.save_file()
+      elif ch == 6:  # Ctrl + F: Find / Search
+        self.search()
+
+      # --- NAVIGATION ---
+      elif ch == curses.KEY_UP:
+        if self.cy > 0:
+          self.cy -= 1
+      elif ch == curses.KEY_DOWN:
+        if self.cy < len(self.lines) - 1:
+          self.cy += 1
+      elif ch == curses.KEY_LEFT:
+        if self.cx > 0:
+          self.cx -= 1
+        elif self.cy > 0:
+          self.cy -= 1
+          self.cx = len(self.lines[self.cy])
+      elif ch == curses.KEY_RIGHT:
+        if self.cx < len(self.lines[self.cy]):
+          self.cx += 1
+        elif self.cy < len(self.lines) - 1:
+          self.cy += 1
+          self.cx = 0
+
+      # --- EDITING ---
+      elif ch in (curses.KEY_ENTER, 10, 13):
+        current_line = self.lines[self.cy]
+        self.lines[self.cy] = current_line[: self.cx]
+        self.lines.insert(self.cy + 1, current_line[self.cx :])
+        self.cy += 1
+        self.cx = 0
+      elif ch in (curses.KEY_BACKSPACE, 127, 8):
+        if self.cx > 0:
+          line = self.lines[self.cy]
+          self.lines[self.cy] = line[: self.cx - 1] + line[self.cx :]
+          self.cx -= 1
+        elif self.cy > 0:
+          prev_len = len(self.lines[self.cy - 1])
+          self.lines[self.cy - 1] += self.lines[self.cy]
+          del self.lines[self.cy]
+          self.cy -= 1
+          self.cx = prev_len
+      elif 32 <= ch <= 126:
+        line = self.lines[self.cy]
+        self.lines[self.cy] = line[: self.cx] + chr(ch) + line[self.cx :]
+        self.cx += 1
+
+
+def main():
+  filename = sys.argv[1] if len(sys.argv) > 1 else "untitled.txt"
+
+  fd = sys.stdin.fileno()
+  old_settings = termios.tcgetattr(fd)
+  try:
+    tty.setraw(fd)
+    curses.wrapper(lambda stdscr: KobiEditor(stdscr, filename).run())
+  finally:
+    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+
 if __name__ == "__main__":
-    app.run()
+  main()
+EOF
 
 '''
 Made by Erik W for Poniek Labs Canada
