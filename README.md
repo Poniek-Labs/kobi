@@ -11,4 +11,6 @@ editors like VIM or NANO, When Codebunny100 and Poniek Labs started working on a
 Kobi was re-written as a more modern, efficient editor, streamlined for Poniek Labs' Upcoming Linux Distro.
 
 ## How to install
-``` curl -sSL https://raw.githubusercontent.com/Poniek-Labs/kobi/main/install.sh | bash ```
+```bash
+curl -sSL https://raw.githubusercontent.com/Poniek-Labs/kobi/main/install.sh | bash
+```
