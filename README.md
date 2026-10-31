@@ -1,4 +1,4 @@
-# 📝 Kobi Terminal Text Editor
+#  Kobi Terminal Text Editor
 
 [![Stand with Ukraine](https://github.com/Poniek-Labs/stand-with-ukraine-banners/blob/main/standwithukrainebannerimg.png)](https://ukraine.ua)
 
@@ -6,19 +6,19 @@
 
 ---
 
-## 🛠️ Overview
+##  Overview
 **Kobi** is an open-source, highly efficient terminal text editor optimized for speed, clarity, and ease of use. 
 
 Originally developed by **Codebunny100** as a lightweight alternative to traditional workflow tools like `vim` or `nano`, the codebase was transferred over to **Poniek Labs** to be refactored into a modern system binary components layer optimized for desktop integrations.
 
 ### Key Enhancements
-* 🚀 **Refactored Architecture** – Completely rewritten text processing pipeline to lower overhead.
-* 🎨 **Enhanced Layout & Themes** – Built-in syntax gutters, intuitive status footer panels, and dynamic screen resizing guards.
-* 📦 **Streamlined Installer** – Fast execution path verification and system binary handling right out of the box.
+*  **Refactored Architecture** – Completely rewritten text processing pipeline to lower overhead.
+*  **Enhanced Layout & Themes** – Built-in syntax gutters, intuitive status footer panels, and dynamic screen resizing guards.
+*  **Streamlined Installer** – Fast execution path verification and system binary handling right out of the box.
 
 ---
 
-## 📥 Installation
+##  Installation
 
 You can easily download and install the global command runtime environment straight to your local path directory utilizing our automatic installer:
 
@@ -30,7 +30,7 @@ curl -sSL https://raw.githubusercontent.com/Poniek-Labs/kobi/main/install.sh | b
 
 ---
 
-## 🎹 Keyboard Shortcuts
+##  Keyboard Shortcuts
 
 Once running, navigate and control the editor with standard physical bindings:
 
@@ -42,7 +42,7 @@ Once running, navigate and control the editor with standard physical bindings:
 
 ---
 
-## ⚖️ License
+##  License
 Kobi is distributed and licensed under the **GNU General Public License V3**. 
   
 *(c) 2026 Poniek Labs Canada. All Rights Reserved.*
