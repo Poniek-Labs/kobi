@@ -43,6 +43,6 @@ Once running, navigate and control the editor with standard physical bindings:
 ---
 
 ##  License
-Kobi is distributed and licensed under the **GNU General Public License V3**. 
+Kobi is distributed and licensed under the **GNU General Public License V3**, see LICENSE for more details.
   
 *(c) 2026 Poniek Labs Canada. All Rights Reserved.*
